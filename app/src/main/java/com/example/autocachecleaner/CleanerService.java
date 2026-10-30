@@ -33,7 +33,7 @@ public class CleanerService extends Service {
             nm.createNotificationChannel(new NotificationChannel(CHANNEL, "Auto Cache Cleaner",
                 NotificationManager.IMPORTANCE_LOW));
         }
-        thread = new HandlerThread("CacheCleanerWorker", Process.THREAD_PRIORITY_BACKGROUND);
+           thread = new HandlerThread("CacheCleanerWorker", android.os.Process.THREAD_PRIORITY_BACKGROUND);
         thread.start();
         handler = new Handler(thread.getLooper());
     }
@@ -70,7 +70,7 @@ public class CleanerService extends Service {
     private String cleanCache() {
         runs++;
         if (rootMode) {
-            Process p = null;
+               java.lang.Process p = null;
             try {
                 p = Runtime.getRuntime().exec(new String[]{"su", "-c", ROOT_CMD});
                 if (!p.waitFor(30, TimeUnit.SECONDS)) {
