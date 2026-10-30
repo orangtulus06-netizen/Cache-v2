@@ -13,11 +13,13 @@ import android.text.InputType;
 import android.view.Gravity;
 import android.view.ViewGroup;
 import android.widget.*;
+import java.util.HashSet;
 
 public class MainActivity extends Activity {
     static final String PREFS = "settings";
     private EditText intervalInput;
-    private CheckBox rootMode;
+    private CheckBox rootMode, selectedOnly, skipRunning;
+    private Button pickApps;
     private TextView status;
     private SharedPreferences prefs;
 
@@ -40,8 +42,8 @@ public class MainActivity extends Activity {
 
         TextView info = new TextView(this);
         info.setText("Mode biasa membersihkan cache aplikasi ini (internal + eksternal). "
-            + "Mode root membersihkan cache semua aplikasi. Disarankan interval 5–30 menit "
-            + "agar hemat baterai.");
+            + "Mode root membersihkan cache aplikasi lain, semuanya atau hanya yang dipilih. "
+            + "Disarankan interval 5–30 menit agar hemat baterai.");
         info.setTextSize(14);
         info.setPadding(0, pad, 0, pad);
         layout.addView(info, matchWrap());
@@ -60,6 +62,24 @@ public class MainActivity extends Activity {
         rootMode.setText("Gunakan akses root (su) untuk cache aplikasi lain");
         rootMode.setChecked(prefs.getBoolean("root", false));
         layout.addView(rootMode, matchWrap());
+
+        selectedOnly = new CheckBox(this);
+        selectedOnly.setText("Mode root: hanya aplikasi pilihan");
+        selectedOnly.setChecked(prefs.getBoolean("selected_only", false));
+        selectedOnly.setOnCheckedChangeListener((v, c) ->
+            prefs.edit().putBoolean("selected_only", c).apply());
+        layout.addView(selectedOnly, matchWrap());
+
+        skipRunning = new CheckBox(this);
+        skipRunning.setText("Mode root: lewati aplikasi yang sedang berjalan");
+        skipRunning.setChecked(prefs.getBoolean("skip_running", false));
+        skipRunning.setOnCheckedChangeListener((v, c) ->
+            prefs.edit().putBoolean("skip_running", c).apply());
+        layout.addView(skipRunning, matchWrap());
+
+        pickApps = new Button(this);
+        pickApps.setOnClickListener(v -> startActivity(new Intent(this, AppPickerActivity.class)));
+        layout.addView(pickApps, matchWrap());
 
         Button start = new Button(this);
         start.setText("Mulai pembersihan otomatis");
@@ -88,6 +108,8 @@ public class MainActivity extends Activity {
 
     @Override protected void onResume() {
         super.onResume();
+        int n = prefs.getStringSet("targets", new HashSet<String>()).size();
+        pickApps.setText("Pilih aplikasi (" + n + " dipilih)");
         status.setText(isServiceRunning()
             ? "Status: berjalan setiap " + prefs.getInt("interval", 900) + " detik"
             : "Status: belum berjalan");
