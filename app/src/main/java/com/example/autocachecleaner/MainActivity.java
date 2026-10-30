@@ -3,6 +3,7 @@ package com.example.autocachecleaner;
 import android.Manifest;
 import android.app.Activity;
 import android.app.ActivityManager;
+import android.app.AlertDialog;
 import android.content.Context;
 import android.content.Intent;
 import android.content.SharedPreferences;
@@ -13,7 +14,11 @@ import android.text.InputType;
 import android.view.Gravity;
 import android.view.ViewGroup;
 import android.widget.*;
+import java.io.BufferedReader;
+import java.io.InputStreamReader;
 import java.util.HashSet;
+import java.util.Set;
+import java.util.concurrent.TimeUnit;
 
 public class MainActivity extends Activity {
     static final String PREFS = "settings";
@@ -81,6 +86,11 @@ public class MainActivity extends Activity {
         pickApps.setOnClickListener(v -> startActivity(new Intent(this, AppPickerActivity.class)));
         layout.addView(pickApps, matchWrap());
 
+        Button diag = new Button(this);
+        diag.setText("Diagnosa folder aplikasi pilihan (root)");
+        diag.setOnClickListener(v -> runDiagnosis());
+        layout.addView(diag, matchWrap());
+
         Button start = new Button(this);
         start.setText("Mulai pembersihan otomatis");
         start.setOnClickListener(v -> startCleaner());
@@ -127,6 +137,52 @@ public class MainActivity extends Activity {
         return new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
     }
 
+    private void runDiagnosis() {
+        status.setText("Diagnosa berjalan...");
+        new Thread(() -> {
+            String out = diagnose();
+            runOnUiThread(() -> {
+                status.setText("Diagnosa selesai");
+                new AlertDialog.Builder(this)
+                    .setTitle("Hasil diagnosa")
+                    .setMessage(out)
+                    .setPositiveButton("OK", null)
+                    .show();
+            });
+        }).start();
+    }
+
+    private String diagnose() {
+        Set<String> targets = prefs.getStringSet("targets", new HashSet<String>());
+        if (targets.isEmpty()) return "Belum ada aplikasi yang dipilih.";
+        StringBuilder sb = new StringBuilder();
+        for (String pkg : targets) {
+            if (!pkg.matches("[A-Za-z0-9_.]+")) continue;
+            sb.append("== ").append(pkg).append('\n');
+            String r = su("for d in /data/user/*/" + pkg + " /data/media/*/Android/data/" + pkg + "; do "
+                + "[ -d \"$d\" ] && { echo \"[$d]\"; du -sk \"$d\"/* 2>/dev/null; }; done");
+            sb.append(r.trim().isEmpty() ? "(tidak ada folder ditemukan)\n" : r).append('\n');
+        }
+        return sb.toString();
+    }
+
+    private String su(String cmd) {
+        java.lang.Process p = null;
+        try {
+            p = new ProcessBuilder("su", "-c", cmd).redirectErrorStream(true).start();
+            BufferedReader r = new BufferedReader(new InputStreamReader(p.getInputStream()));
+            StringBuilder s = new StringBuilder();
+            String line;
+            while ((line = r.readLine()) != null) s.append(line).append('\n');
+            p.waitFor(20, TimeUnit.SECONDS);
+            return s.toString();
+        } catch (Exception e) {
+            return "Root tidak tersedia: " + e.getClass().getSimpleName() + "\n";
+        } finally {
+            if (p != null) p.destroy();
+        }
+    }
+
     private void startCleaner() {
         int seconds;
         try {
@@ -146,4 +202,4 @@ public class MainActivity extends Activity {
         startForegroundService(intent);
         status.setText("Status: berjalan setiap " + seconds + " detik. Lihat notifikasi untuk detail.");
     }
-}
+            }
