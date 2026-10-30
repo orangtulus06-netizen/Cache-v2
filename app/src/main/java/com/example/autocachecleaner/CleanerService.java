@@ -5,17 +5,24 @@ import android.content.Context;
 import android.content.Intent;
 import android.content.SharedPreferences;
 import android.os.*;
+import java.io.BufferedReader;
 import java.io.File;
+import java.io.InputStreamReader;
 import java.util.concurrent.TimeUnit;
 
 public class CleanerService extends Service {
     static final String ACTION_STOP = "com.example.autocachecleaner.STOP";
     private static final String CHANNEL = "cache_cleaner";
     private static final int NOTIFICATION_ID = 7;
+    private static final String DIRS =
+        "/data/user/*/*/cache /data/media/*/Android/data/*/cache";
     private static final String ROOT_CMD =
-        "for d in /data/user/*/*/cache /data/media/*/Android/data/*/cache; do " +
+        "S() { t=0; for k in $(du -sk " + DIRS + " 2>/dev/null | cut -f1); do t=$((t+k)); done; echo $t; }; " +
+        "B=$(S); " +
+        "for d in " + DIRS + "; do " +
         "[ -d \"$d\" ] && find \"$d\" -mindepth 1 -maxdepth 1 -exec rm -rf -- {} + 2>/dev/null; " +
-        "done; exit 0";
+        "done; " +
+        "A=$(S); echo \"RESULT $B $A\"; exit 0";
 
     private Handler handler;
     private HandlerThread thread;
@@ -33,7 +40,7 @@ public class CleanerService extends Service {
             nm.createNotificationChannel(new NotificationChannel(CHANNEL, "Auto Cache Cleaner",
                 NotificationManager.IMPORTANCE_LOW));
         }
-           thread = new HandlerThread("CacheCleanerWorker", android.os.Process.THREAD_PRIORITY_BACKGROUND);
+        thread = new HandlerThread("CacheCleanerWorker", android.os.Process.THREAD_PRIORITY_BACKGROUND);
         thread.start();
         handler = new Handler(thread.getLooper());
     }
@@ -70,15 +77,33 @@ public class CleanerService extends Service {
     private String cleanCache() {
         runs++;
         if (rootMode) {
-               java.lang.Process p = null;
+            java.lang.Process p = null;
             try {
-                p = Runtime.getRuntime().exec(new String[]{"su", "-c", ROOT_CMD});
-                if (!p.waitFor(30, TimeUnit.SECONDS)) {
+                p = new ProcessBuilder("su", "-c", ROOT_CMD).redirectErrorStream(true).start();
+                if (!p.waitFor(60, TimeUnit.SECONDS)) {
                     p.destroyForcibly();
                     return "Root timeout (run #" + runs + ")";
                 }
-                return p.exitValue() == 0 ? "Cache semua aplikasi dibersihkan (root), run #" + runs
-                                          : "Root ditolak/gagal (kode " + p.exitValue() + ")";
+                if (p.exitValue() != 0) return "Root ditolak/gagal (kode " + p.exitValue() + ")";
+                long freedKb = -1;
+                BufferedReader r = new BufferedReader(new InputStreamReader(p.getInputStream()));
+                String line;
+                while ((line = r.readLine()) != null) {
+                    if (line.startsWith("RESULT ")) {
+                        String[] parts = line.trim().split("\\s+");
+                        if (parts.length >= 3) {
+                            try {
+                                long before = Long.parseLong(parts[1]);
+                                long after = Long.parseLong(parts[2]);
+                                freedKb = Math.max(0, before - after);
+                            } catch (NumberFormatException ignored) {}
+                        }
+                    }
+                }
+                if (freedKb < 0) return "Run #" + runs + ": pembersihan root selesai (jumlah tidak terbaca)";
+                long freed = freedKb * 1024L;
+                totalFreed += freed;
+                return "Run #" + runs + ": " + fmt(freed) + " dibersihkan (root), total " + fmt(totalFreed);
             } catch (Exception e) {
                 return "Root tidak tersedia: " + e.getClass().getSimpleName();
             } finally {
