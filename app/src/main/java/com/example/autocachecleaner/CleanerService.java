@@ -8,21 +8,13 @@ import android.os.*;
 import java.io.BufferedReader;
 import java.io.File;
 import java.io.InputStreamReader;
+import java.util.HashSet;
 import java.util.concurrent.TimeUnit;
 
 public class CleanerService extends Service {
     static final String ACTION_STOP = "com.example.autocachecleaner.STOP";
     private static final String CHANNEL = "cache_cleaner";
     private static final int NOTIFICATION_ID = 7;
-    private static final String DIRS =
-        "/data/user/*/*/cache /data/media/*/Android/data/*/cache";
-    private static final String ROOT_CMD =
-        "S() { t=0; for k in $(du -sk " + DIRS + " 2>/dev/null | cut -f1); do t=$((t+k)); done; echo $t; }; " +
-        "B=$(S); " +
-        "for d in " + DIRS + "; do " +
-        "[ -d \"$d\" ] && find \"$d\" -mindepth 1 -maxdepth 1 -exec rm -rf -- {} + 2>/dev/null; " +
-        "done; " +
-        "A=$(S); echo \"RESULT $B $A\"; exit 0";
 
     private Handler handler;
     private HandlerThread thread;
@@ -74,12 +66,43 @@ public class CleanerService extends Service {
         return getSharedPreferences(MainActivity.PREFS, Context.MODE_PRIVATE);
     }
 
+    /** Menyusun skrip shell untuk mode root sesuai pengaturan terbaru. Mengembalikan null jika tidak ada target. */
+    private String buildRootCmd() {
+        SharedPreferences p = prefs();
+        boolean selectedOnly = p.getBoolean("selected_only", false);
+        boolean skipRunning = p.getBoolean("skip_running", false);
+        String pk;
+        if (selectedOnly) {
+            StringBuilder sb = new StringBuilder();
+            for (String s : p.getStringSet("targets", new HashSet<String>())) {
+                if (s.matches("[A-Za-z0-9_.]+")) sb.append(s).append(' ');
+            }
+            if (sb.length() == 0) return null;
+            pk = "'" + sb.toString().trim() + "'";
+        } else {
+            pk = "\"$(ls /data/user/0 2>/dev/null)\"";
+        }
+        return "PK=" + pk + "; SKIP=" + (skipRunning ? 1 : 0) + "; " +
+            "D=$(for p in $PK; do " +
+            "[ \"$p\" = com.example.autocachecleaner ] && continue; " +
+            "if [ $SKIP = 1 ] && pidof \"$p\" >/dev/null 2>&1; then continue; fi; " +
+            "for d in /data/user/*/$p/cache /data/media/*/Android/data/$p/cache; do " +
+            "[ -d \"$d\" ] && echo \"$d\"; done; done); " +
+            "[ -n \"$D\" ] || { echo \"RESULT 0 0\"; exit 0; }; " +
+            "S() { t=0; for k in $(du -sk $D 2>/dev/null | cut -f1); do t=$((t+k)); done; echo $t; }; " +
+            "B=$(S); " +
+            "for d in $D; do find \"$d\" -mindepth 1 -maxdepth 1 -exec rm -rf -- {} + 2>/dev/null; done; " +
+            "A=$(S); echo \"RESULT $B $A\"; exit 0";
+    }
+
     private String cleanCache() {
         runs++;
         if (rootMode) {
+            String cmd = buildRootCmd();
+            if (cmd == null) return "Pilih minimal satu aplikasi dulu (mode aplikasi pilihan aktif)";
             java.lang.Process p = null;
             try {
-                p = new ProcessBuilder("su", "-c", ROOT_CMD).redirectErrorStream(true).start();
+                p = new ProcessBuilder("su", "-c", cmd).redirectErrorStream(true).start();
                 if (!p.waitFor(60, TimeUnit.SECONDS)) {
                     p.destroyForcibly();
                     return "Root timeout (run #" + runs + ")";
