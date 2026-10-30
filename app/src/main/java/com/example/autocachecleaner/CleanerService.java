@@ -86,7 +86,7 @@ public class CleanerService extends Service {
             "D=$(for p in $PK; do " +
             "[ \"$p\" = com.example.autocachecleaner ] && continue; " +
             "if [ $SKIP = 1 ] && pidof \"$p\" >/dev/null 2>&1; then continue; fi; " +
-            "for d in /data/user/*/$p/cache /data/media/*/Android/data/$p/cache; do " +
+            "for d in /data/user/*/$p/cache /data/user/*/$p/code_cache /data/media/*/Android/data/$p/cache; do " +
             "[ -d \"$d\" ] && echo \"$d\"; done; done); " +
             "[ -n \"$D\" ] || { echo \"RESULT 0 0\"; exit 0; }; " +
             "S() { t=0; for k in $(du -sk $D 2>/dev/null | cut -f1); do t=$((t+k)); done; echo $t; }; " +
